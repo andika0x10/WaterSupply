@@ -32,7 +32,7 @@ import java.time.format.DateTimeFormatter
     var editor by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val date = LocalDate.parse(selected)
-    val records = s.drinks.filter { it.localDate == selected }
+    val records = s.drinksByDate[selected].orEmpty()
     Text("Riwayat", style = MaterialTheme.typography.headlineLarge)
     Text("Sedikit demi sedikit, setiap hari.", style = MaterialTheme.typography.bodyLarge)
     Surface(color = Color.White, shape = RoundedCornerShape(24.dp)) {
@@ -41,7 +41,7 @@ import java.time.format.DateTimeFormatter
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
                 (6 downTo 0).forEach { offset ->
                     val d = s.date.minusDays(offset.toLong())
-                    val units = s.drinks.filter { it.localDate == d.toString() }.sumOf { it.units }
+                    val units = s.totalsByDate[d.toString()] ?: 0
                     val target = targetFor(s.targets, d)
                     Column(Modifier.width(48.dp).clip(RoundedCornerShape(12.dp)).clickable { selected = d.toString() }.padding(vertical = 8.dp).clearAndSetSemantics {
                         contentDescription = "${d.format(dateFormat)}, ${glasses(units)} dari ${glasses(target)} gelas"

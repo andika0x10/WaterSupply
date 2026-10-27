@@ -18,10 +18,11 @@ APK debug: `app/build/outputs/apk/debug/app-debug.apk`.
 - Tombol aplikasi dan widget mencatat 1 atau ½ gelas melalui repository yang sama. Riwayat mendukung tambah catatan lampau, ubah, dan hapus.
 - Jumlah disimpan dalam unit setengah gelas berbentuk integer. Target awal 8 gelas; perubahan target berlaku untuk hari ini dan hari berikutnya. Target hari sebelumnya tetap menggunakan nilai yang berlaku pada tanggal itu.
 - Catatan menyimpan waktu absolut serta tanggal lokal saat dicatat. Perubahan zona waktu tidak memindahkan catatan yang sudah tersimpan ke tanggal lain. Koreksi waktu menghitung ulang tanggal lokal catatan tersebut.
-- Pengingat awalnya nonaktif. Pilih interval 15–240 menit atau daftar jam khusus. Interval dimulai pada jam aktif pertama dan tidak bergeser setelah minum.
+- Saat pertama dibuka, aplikasi menawarkan aktivasi pengingat dan meminta izin notifikasi, dilanjutkan panduan akses Alarm & pengingat. Pilih Nanti untuk tetap menonaktifkannya; aktivasi bisa dilakukan lagi dari Pengaturan. Pilih interval 15–240 menit atau daftar jam khusus. Interval dimulai pada jam aktif pertama dan tidak bergeser setelah minum.
 - Saat target tercapai, pengingat selanjutnya dijadwalkan untuk hari berikutnya. Menghapus atau mengoreksi catatan sehingga progres di bawah target mengaktifkan jadwal berikutnya hari ini.
-- Izin notifikasi dan akses alarm tepat waktu dikelola di Pengaturan. Jika akses alarm tidak tersedia, aplikasi menggunakan alarm biasa yang dapat terlambat. Android dapat membatasi alarm saat perangkat mati, di-force-stop, atau karena kebijakan baterai produsen.
-- Pergantian hari menggunakan alarm pemeliharaan biasa; pembaruan widget di latar belakang bisa tertunda mengikuti pembatasan Android. Interaksi widget selalu membaca tanggal terbaru.
+- Pengingat menggunakan `AlarmManager.setExactAndAllowWhileIdle` jika akses tersedia. Jika akses alarm tidak tersedia, aplikasi menggunakan alarm biasa yang dapat terlambat. Izin yang ditolak dan kanal notifikasi yang diblokir bisa diaktifkan kembali dari Pengaturan. Android dapat membatasi alarm saat perangkat mati, di-force-stop, atau karena kebijakan baterai produsen. Rujukan: [izin notifikasi Android](https://developer.android.com/develop/ui/compose/notifications/notification-permission) dan [penjadwalan alarm](https://developer.android.com/develop/background-work/services/alarms).
+- Pergantian hari menggunakan alarm pemeliharaan yang tidak membangunkan perangkat; pembaruan widget di latar belakang bisa tertunda mengikuti pembatasan Android. Interaksi widget selalu membaca tanggal terbaru.
+- Aplikasi dan sesi widget menunggu tengah malam serta merespons perubahan waktu/zona, tanpa polling setiap 15 detik. Widget membaca agregat SQL untuk tanggal aktif, dan halaman riwayat memakai hasil pengelompokan tanggal yang dihitung sekali per state.
 - Tidak ada akun, internet, analitik, atau pencadangan cloud aplikasi. Menghapus data aplikasi atau uninstall akan menghapus catatan.
 
 ## Verifikasi perangkat
@@ -30,9 +31,11 @@ Selain tes otomatis, periksa izin notifikasi ditolak/diberikan, akses alarm dica
 
 ## Hasil verifikasi implementasi
 
-- Build debug, 12 unit test, dan 9 tes instrumentasi lulus pada emulator Android 17 / API 37.
-- Tes instrumentasi mencakup penulisan bersamaan, penyimpanan setelah database dibuka ulang, koreksi tanggal, target historis, tambah/urungkan, navigasi, teks 200%, aksi widget, serta pengiriman dan penghentian notifikasi berdasarkan target.
-- Lint: 0 error; 15 peringatan ketersediaan versi dependensi lebih baru.
+- Build debug, 12 unit test, dan 15 tes instrumentasi lulus pada emulator Android 17 / API 37.
+- Tes instrumentasi mencakup penulisan bersamaan, penyimpanan setelah database dibuka ulang, koreksi tanggal, target historis, tambah/urungkan, navigasi, teks 200%, aksi dan layout widget, agregat progres per tanggal, penundaan panduan pengingat, serta pengiriman dan penghentian notifikasi berdasarkan target.
+- Lint: 0 error; 13 peringatan ketersediaan versi dependensi lebih baru.
+- Alur izin diperiksa pada instalasi baru: Aktifkan → dialog izin notifikasi Android → panduan alarm → halaman Alarm & pengingat. Setelah akses diberikan, `dumpsys alarm` mengonfirmasi pengingat `RTC_WAKEUP` dengan jendela 0 dan akses exact alarm.
+- Setelah proses aplikasi dihentikan melalui `am kill` (tanpa force-stop), alarm pukul 20.00 menghidupkan proses baru, mengirim notifikasi, dan menjadwalkan pengingat berikutnya pukul 21.00.
 - Widget diperiksa langsung pada ukuran dua dan tiga kolom. Setelah proses aplikasi dimatikan, pencatatan dari widget memulai proses baru dan memperbarui progres; pencatatan berikutnya pada sesi aktif serta koreksi dari aplikasi juga tersinkron.
 - Tampilan diperiksa pada lebar sekitar 320 dp. Pengujian TalkBack langsung, reboot, pencabutan akses alarm, dan pembatasan baterai pada perangkat fisik masih perlu dilakukan.
 

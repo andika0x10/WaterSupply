@@ -21,6 +21,9 @@ interface WaterDao {
     @Query("SELECT * FROM drinks ORDER BY timestamp DESC") fun observeDrinks(): Flow<List<Drink>>
     @Query("SELECT * FROM targets ORDER BY date") fun observeTargets(): Flow<List<DailyTarget>>
     @Query("SELECT * FROM drinks WHERE localDate = :date") suspend fun onDate(date: String): List<Drink>
+    @Query("SELECT COALESCE(SUM(units), 0) FROM drinks WHERE localDate = :date") suspend fun total(date: String): Int
+    @Query("SELECT COALESCE(SUM(units), 0) FROM drinks WHERE localDate = :date") fun observeTotal(date: String): Flow<Int>
+    @Query("SELECT units FROM targets WHERE date <= :date ORDER BY date DESC LIMIT 1") fun observeTarget(date: String): Flow<Int?>
     @Query("SELECT units FROM targets WHERE date <= :date ORDER BY date DESC LIMIT 1") suspend fun target(date: String): Int?
     @Insert suspend fun insert(drink: Drink): Long
     @Update suspend fun update(drink: Drink)
@@ -36,7 +39,7 @@ abstract class WaterDatabase : RoomDatabase() { abstract fun waterDao(): WaterDa
 enum class ReminderMode { INTERVAL, CUSTOM }
 data class Preferences(val enabled: Boolean = false, val mode: ReminderMode = ReminderMode.INTERVAL,
     val interval: Int = 60, val start: Int = 480, val end: Int = 1260,
-    val times: List<Int> = listOf(540, 750, 960))
+    val times: List<Int> = listOf(540, 750, 960), val reminderSetupComplete: Boolean = false)
 
 private val Context.waterPreferences by preferencesDataStore("water_preferences")
 class WaterRepository(context: Context, val database: WaterDatabase = Room.databaseBuilder(
@@ -50,7 +53,8 @@ class WaterRepository(context: Context, val database: WaterDatabase = Room.datab
             runCatching { ReminderMode.valueOf(p[stringPreferencesKey("mode")] ?: "INTERVAL") }.getOrDefault(ReminderMode.INTERVAL),
             p[intPreferencesKey("interval")] ?: 60, p[intPreferencesKey("start")] ?: 480,
             p[intPreferencesKey("end")] ?: 1260,
-            p[stringSetPreferencesKey("times")]?.mapNotNull(String::toIntOrNull)?.sorted() ?: listOf(540, 750, 960))
+            p[stringSetPreferencesKey("times")]?.mapNotNull(String::toIntOrNull)?.sorted() ?: listOf(540, 750, 960),
+            p[booleanPreferencesKey("reminder_setup_complete")] ?: false)
     }
 
     suspend fun savePreferences(p: Preferences) {
@@ -64,6 +68,7 @@ class WaterRepository(context: Context, val database: WaterDatabase = Room.datab
             it[intPreferencesKey("start")] = p.start
             it[intPreferencesKey("end")] = p.end
             it[stringSetPreferencesKey("times")] = p.times.map(Int::toString).toSet()
+            it[booleanPreferencesKey("reminder_setup_complete")] = p.reminderSetupComplete
         }
     }
 
@@ -84,7 +89,7 @@ class WaterRepository(context: Context, val database: WaterDatabase = Room.datab
     }
     suspend fun today(): Pair<Int, Int> {
         val date = LocalDate.now().toString()
-        return database.withTransaction { dao.onDate(date).sumOf { it.units } to (dao.target(date) ?: 16) }
+        return database.withTransaction { dao.total(date) to (dao.target(date) ?: 16) }
     }
 }
 

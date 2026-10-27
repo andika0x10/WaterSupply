@@ -10,15 +10,18 @@ import java.time.LocalDate
 
 data class WaterState(val drinks: List<Drink> = emptyList(), val targets: List<DailyTarget> = emptyList(),
     val preferences: Preferences = Preferences(), val date: LocalDate = LocalDate.now(), val loading: Boolean = true) {
-    val today get() = drinks.filter { it.localDate == date.toString() }
-    val total get() = today.sumOf { it.units }
-    val target get() = targetFor(targets, date)
+    val drinksByDate by lazy { drinks.groupBy { it.localDate } }
+    val totalsByDate by lazy { drinksByDate.mapValues { (_, records) -> records.sumOf { it.units } } }
+    val today by lazy { drinksByDate[date.toString()].orEmpty() }
+    val total by lazy { totalsByDate[date.toString()] ?: 0 }
+    val target by lazy { targetFor(targets, date) }
 }
 class WaterViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as WaterApplication
     private val repo = app.repository
-    private val day = flow { while (true) { emit(LocalDate.now()); delay(15_000) } }
+    private val day = app.currentDateFlow()
     val state = combine(repo.drinks, repo.targets, repo.preferences, day) { d, t, p, date -> WaterState(d, t, p, date, false) }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), WaterState())
     val messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     private fun perform(block: suspend () -> Unit) { viewModelScope.launch {

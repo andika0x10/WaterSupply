@@ -18,26 +18,33 @@ import java.time.ZonedDateTime
 
 class ReminderController(private val context: Context, private val repository: WaterRepository) {
     private val alarms = context.getSystemService(AlarmManager::class.java)
+    private val manager = context.getSystemService(NotificationManager::class.java)
     fun exactAllowed() = Build.VERSION.SDK_INT < 31 || alarms.canScheduleExactAlarms()
     fun notificationsAllowed() = NotificationManagerCompat.from(context).areNotificationsEnabled() &&
-        (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
+        (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) && !channelBlocked()
+
+    fun channelBlocked() = Build.VERSION.SDK_INT >= 26 && manager.getNotificationChannel(CHANNEL_ID)?.importance == NotificationManager.IMPORTANCE_NONE
+    fun createChannel() {
+        if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_ID, "Pengingat minum", NotificationManager.IMPORTANCE_DEFAULT))
+    }
 
     private fun pending(action: String, code: Int) = PendingIntent.getBroadcast(context, code,
         Intent(context, WaterReceiver::class.java).setAction(action), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
     suspend fun reschedule() {
         val reminder = pending(REMIND, 1)
-        alarms.cancel(reminder)
         val now = ZonedDateTime.now()
         val (total, target) = repository.today()
         val p = repository.preferences.first()
         if (total >= target || !p.enabled) NotificationManagerCompat.from(context).cancel(1)
-        if (notificationsAllowed()) ReminderSchedule.next(p, now, total >= target)?.let {
-            schedule(it.toInstant().toEpochMilli(), reminder, true)
-        }
-        // A separate daily wake-up refreshes widget progress even with reminders disabled.
+        val next = if (notificationsAllowed()) ReminderSchedule.next(p, now, total >= target) else null
+        if (next == null) alarms.cancel(reminder)
+        else schedule(next.toInstant().toEpochMilli(), reminder, true)
+        // A separate daily alarm refreshes widget progress even with reminders disabled.
         val midnight = now.toLocalDate().plusDays(1).atStartOfDay(now.zone).toInstant().toEpochMilli()
-        schedule(midnight, pending(DAY_CHANGED, 2), false)
+        // Widget maintenance can wait until the device is awake.
+        alarms.set(AlarmManager.RTC, midnight, pending(DAY_CHANGED, 2))
     }
 
     private fun schedule(at: Long, pending: PendingIntent, precise: Boolean) {
@@ -53,18 +60,17 @@ class ReminderController(private val context: Context, private val repository: W
         val p = repository.preferences.first()
         val (total, target) = repository.today()
         if (!p.enabled || total >= target || !notificationsAllowed() || !ReminderSchedule.isActive(p, ZonedDateTime.now())) return
-        val manager = context.getSystemService(NotificationManager::class.java)
-        if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(
-            NotificationChannel("water", "Pengingat minum", NotificationManager.IMPORTANCE_DEFAULT))
+        createChannel()
         val open = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val notification = NotificationCompat.Builder(context, "water")
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_water).setContentTitle("Saatnya minum air")
             .setContentText("Luangkan waktu untuk segelas air. Catat setelah kamu minum.")
             .setContentIntent(open).setAutoCancel(true).build()
         try { manager.notify(1, notification) } catch (_: SecurityException) { /* Permission may be revoked while delivering. */ }
     }
     companion object {
+        const val CHANNEL_ID = "water"
         const val REMIND = "com.andika.watersupply.REMIND"
         const val DAY_CHANGED = "com.andika.watersupply.DAY_CHANGED"
     }
@@ -75,8 +81,10 @@ class WaterReceiver : BroadcastReceiver() {
         val result = goAsync()
         context.waterApp.scope.launch {
             try {
-                if (intent.action == ReminderController.REMIND) context.waterApp.reminders.notifyIfNeeded()
-                context.waterApp.refresh()
+                if (intent.action == ReminderController.REMIND) {
+                    try { context.waterApp.reminders.notifyIfNeeded() }
+                    finally { context.waterApp.reminders.reschedule() }
+                } else context.waterApp.refresh()
             } finally { result.finish() }
         }
     }

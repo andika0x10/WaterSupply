@@ -4,6 +4,7 @@ import androidx.room.Room
 import androidx.test.platform.app.InstrumentationRegistry
 import com.andika.watersupply.data.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
 import org.junit.*
 import org.junit.Assert.*
 import java.time.*
@@ -70,6 +71,21 @@ class WaterRepositoryTest {
         repo.setTarget(12, today.minusDays(2)); repo.setTarget(20, today)
         assertEquals(12, repo.dao.target(today.minusDays(1).toString()))
         assertEquals(20, repo.today().second)
+    }
+    @Test fun widgetSummaryUsesSelectedDateAndApplicableTarget() = runBlocking {
+        val today = LocalDate.now()
+        val yesterday = today.minusDays(1)
+        repo.record(2, yesterday.atTime(12, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli())
+        repo.setTarget(12, yesterday)
+        repo.setTarget(20, today)
+        assertEquals(0, repo.dao.observeTotal(today.toString()).first())
+        assertEquals(2, repo.dao.observeTotal(yesterday.toString()).first())
+        assertEquals(12, repo.dao.observeTarget(yesterday.toString()).first())
+        assertEquals(20, repo.dao.observeTarget(today.toString()).first())
+        val id = repo.record(1)
+        assertEquals(1, repo.dao.observeTotal(today.toString()).first())
+        repo.delete(id)
+        assertEquals(0, repo.dao.observeTotal(today.toString()).first())
     }
     @Test fun recordsSurviveDatabaseReopen() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext

@@ -10,9 +10,36 @@ import com.andika.watersupply.ui.WaterApp
 import com.andika.watersupply.ui.theme.WaterSupplyTheme
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Before
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
+import org.junit.Assert.*
 
 class WaterUiTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    @Before fun dismissReminderIntroduction() {
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("+1 gelas").fetchSemanticsNodes().isNotEmpty() }
+        if (compose.onAllNodesWithText("Aktifkan pengingat minum?").fetchSemanticsNodes().isNotEmpty()) {
+            compose.onNodeWithText("Nanti").performClick()
+            compose.waitUntil { compose.onAllNodesWithText("Aktifkan pengingat minum?").fetchSemanticsNodes().isEmpty() }
+        }
+    }
+    @Test fun reminderIntroductionCanBeDeferredAndStaysDismissed() {
+        val repo = compose.activity.waterApp.repository
+        val original = runBlocking { repo.preferences.first() }
+        try {
+            runBlocking { repo.savePreferences(original.copy(enabled = false, reminderSetupComplete = false)) }
+            compose.waitUntil(10_000) { compose.onAllNodesWithText("Aktifkan pengingat minum?").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Aktifkan pengingat minum?").assertExists()
+            compose.onNodeWithText("Nanti").performClick()
+            compose.waitUntil { compose.onAllNodesWithText("Aktifkan pengingat minum?").fetchSemanticsNodes().isEmpty() }
+            assertTrue(runBlocking { repo.preferences.first().reminderSetupComplete })
+            assertFalse(runBlocking { repo.preferences.first().enabled })
+            compose.onNodeWithText("Pengaturan").performClick()
+            compose.onNodeWithText("Beranda").performClick()
+            compose.onNodeWithText("Aktifkan pengingat minum?").assertDoesNotExist()
+        } finally { runBlocking { repo.savePreferences(original) } }
+    }
     @Test fun recordUndoAndNavigate() {
         compose.waitUntil(10_000) { compose.onAllNodesWithText("+1 gelas").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("+1 gelas").performScrollTo().performClick()

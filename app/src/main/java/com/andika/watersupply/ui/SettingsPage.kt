@@ -1,15 +1,9 @@
 package com.andika.watersupply.ui
 
-import android.Manifest
 import android.app.TimePickerDialog
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
-import android.content.Intent
-import android.net.Uri
 import android.os.Build
-import android.provider.Settings
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,14 +22,12 @@ import com.andika.watersupply.*
 import com.andika.watersupply.data.*
 import com.andika.watersupply.widget.WaterWidgetReceiver
 
-@Composable fun SettingsPage(s: WaterState, vm: WaterViewModel, permissionRevision: Int) {
+@Composable fun SettingsPage(s: WaterState, vm: WaterViewModel, permissionRevision: Int, permissions: ReminderPermissionActions) {
     val context = LocalContext.current
     val controller = context.waterApp.reminders
     val p = s.preferences
     var targetEditor by remember { mutableStateOf(false) }
     var scheduleEditor by remember { mutableStateOf(false) }
-    var permissionUpdate by remember { mutableIntStateOf(0) }
-    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { permissionUpdate++; vm.refresh() }
     Text("Pengaturan", style = MaterialTheme.typography.headlineLarge)
     Text("Sesuaikan dengan ritme harimu.", style = MaterialTheme.typography.bodyLarge)
     SettingSection("Target harian") {
@@ -47,8 +39,8 @@ import com.andika.watersupply.widget.WaterWidgetReceiver
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Text(if (p.enabled) "Aktif" else "Nonaktif", Modifier.weight(1f))
             Switch(checked = p.enabled, onCheckedChange = { enabled ->
-                vm.preferences(p.copy(enabled = enabled))
-                if (enabled && Build.VERSION.SDK_INT >= 33) permission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                vm.preferences(p.copy(enabled = enabled, reminderSetupComplete = true))
+                if (enabled) permissions.notifications()
             }, modifier = Modifier.semantics { contentDescription = "Aktifkan pengingat minum" })
         }
         Text(if (p.mode == ReminderMode.INTERVAL) "Setiap ${p.interval} menit, ${clock(p.start)}–${clock(p.end)}" else p.times.joinToString(", ") { clock(it) }, style = MaterialTheme.typography.bodyMedium)
@@ -56,17 +48,11 @@ import com.andika.watersupply.widget.WaterWidgetReceiver
         Text("Jadwal tetap setelah pencatatan. Pengingat berhenti saat target tercapai.", style = MaterialTheme.typography.bodySmall)
     }
     SettingSection("Izin & ketepatan") {
-        key(permissionRevision, permissionUpdate) {
+        key(permissionRevision) {
             Text(if (controller.notificationsAllowed()) "Notifikasi diizinkan" else "Notifikasi belum diizinkan", style = MaterialTheme.typography.titleMedium)
-            if (!controller.notificationsAllowed()) TextButton(onClick = {
-                val intent = if (Build.VERSION.SDK_INT >= 26) Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                    else Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
-                context.startActivity(intent)
-            }) { Text("Buka izin notifikasi") }
+            if (!controller.notificationsAllowed()) TextButton(onClick = permissions.notifications) { Text("Izinkan notifikasi") }
             Text(if (controller.exactAllowed()) "Akses alarm tepat waktu tersedia" else "Pengingat dapat terlambat karena akses alarm belum aktif.", style = MaterialTheme.typography.bodyMedium)
-            if (Build.VERSION.SDK_INT >= 31 && !controller.exactAllowed()) TextButton(onClick = {
-                context.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${context.packageName}")))
-            }) { Text("Izinkan alarm tepat waktu") }
+            if (Build.VERSION.SDK_INT >= 31 && !controller.exactAllowed()) TextButton(onClick = permissions.alarms) { Text("Izinkan alarm tepat waktu") }
         }
     }
     SettingSection("Widget layar utama") {

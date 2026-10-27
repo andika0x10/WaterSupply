@@ -48,12 +48,23 @@ fun timeOf(drink: Drink): String = Instant.ofEpochMilli(drink.timestamp).atZone(
     val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var permissionRevision by remember { mutableIntStateOf(0) }
+    val permissions = rememberReminderPermissions { permissionRevision++; vm.refresh() }
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) { permissionRevision++; vm.refresh() } }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
     LaunchedEffect(vm) { vm.messages.collect { snackbar.showSnackbar(it) } }
+    if (!state.loading && !state.preferences.reminderSetupComplete) {
+        AlertDialog(onDismissRequest = { vm.preferences(state.preferences.copy(reminderSetupComplete = true)) },
+            title = { Text("Aktifkan pengingat minum?") },
+            text = { Text("Water Supply bisa mengingatkanmu setiap ${state.preferences.interval} menit, pukul ${clock(state.preferences.start)}–${clock(state.preferences.end)}. Izinkan notifikasi dan alarm agar pengingat sampai sesuai jadwal.") },
+            confirmButton = { TextButton(onClick = {
+                vm.preferences(state.preferences.copy(enabled = true, reminderSetupComplete = true))
+                permissions.notifications()
+            }) { Text("Aktifkan") } },
+            dismissButton = { TextButton(onClick = { vm.preferences(state.preferences.copy(reminderSetupComplete = true)) }) { Text("Nanti") } })
+    }
     Scaffold(containerColor = Sky, snackbarHost = { SnackbarHost(snackbar) }, bottomBar = {
         NavigationBar(containerColor = Color.White, tonalElevation = 0.dp) {
             listOf("Beranda", "Riwayat", "Pengaturan").forEachIndexed { index, title ->
@@ -72,7 +83,7 @@ fun timeOf(drink: Drink): String = Instant.ofEpochMilli(drink.timestamp).atZone(
                         if (snackbar.showSnackbar("${glasses(units)} gelas dicatat", "Urungkan", duration = SnackbarDuration.Short) == SnackbarResult.ActionPerformed) vm.delete(id)
                     } } }, { page = 2 }, permissionRevision)
                     1 -> History(state, vm)
-                    else -> SettingsPage(state, vm, permissionRevision)
+                    else -> SettingsPage(state, vm, permissionRevision, permissions)
                 }
                 Spacer(Modifier.height(8.dp))
             }
@@ -83,10 +94,11 @@ fun timeOf(drink: Drink): String = Instant.ofEpochMilli(drink.timestamp).atZone(
 @Composable private fun Home(s: WaterState, add: (Int) -> Unit, settings: () -> Unit, permissionRevision: Int) {
     val context = LocalContext.current
     val notificationsAllowed = remember(permissionRevision) { context.waterApp.reminders.notificationsAllowed() }
+    val exactAllowed = remember(permissionRevision) { context.waterApp.reminders.exactAllowed() }
     Text("Water Supply", style = MaterialTheme.typography.headlineLarge)
     Text(s.date.format(dateFormat), style = MaterialTheme.typography.bodyMedium)
     Surface(onClick = settings, color = Color.White.copy(alpha = .6f), shape = RoundedCornerShape(24.dp)) {
-        Text(if (!s.preferences.enabled) "Pengingat belum aktif" else if (!notificationsAllowed) "Aktifkan izin notifikasi" else if (s.total >= s.target) "Target tercapai · pengingat dijeda" else "Pengingat aktif · ${if (s.preferences.mode == ReminderMode.INTERVAL) "setiap ${s.preferences.interval} menit" else "${s.preferences.times.size} kali sehari"}",
+        Text(if (!s.preferences.enabled) "Pengingat belum aktif" else if (!notificationsAllowed) "Aktifkan izin notifikasi" else if (!exactAllowed) "Aktifkan alarm tepat waktu" else if (s.total >= s.target) "Target tercapai · pengingat dijeda" else "Pengingat aktif · ${if (s.preferences.mode == ReminderMode.INTERVAL) "setiap ${s.preferences.interval} menit" else "${s.preferences.times.size} kali sehari"}",
             Modifier.padding(horizontal = 16.dp, vertical = 14.dp), style = MaterialTheme.typography.bodyMedium)
     }
     WaterGlass(s.total, s.target, Modifier.fillMaxWidth().height(240.dp))

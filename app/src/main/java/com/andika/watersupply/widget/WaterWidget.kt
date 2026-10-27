@@ -18,12 +18,11 @@ import androidx.glance.semantics.semantics
 import com.andika.watersupply.MainActivity
 import com.andika.watersupply.R
 import com.andika.watersupply.data.glasses
-import com.andika.watersupply.data.targetFor
+import com.andika.watersupply.data.currentDateFlow
 import com.andika.watersupply.waterApp
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flow
-import java.time.LocalDate
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 private val Ink = Color(0xFF17384D)
 internal data class WidgetProgress(val total: Int, val target: Int, val canUndo: Boolean)
@@ -33,13 +32,14 @@ class WaterWidget : GlanceAppWidget() {
         DpSize(140.dp, 150.dp), DpSize(180.dp, 150.dp), DpSize(250.dp, 180.dp)
     ))
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val repository = context.waterApp.repository
-        val day = flow { while (true) { emit(LocalDate.now()); delay(15_000) } }
-        val progress = combine(repository.drinks, repository.targets, day) { drinks, targets, date ->
-            val today = drinks.filter { it.localDate == date.toString() }
-            WidgetProgress(today.sumOf { it.units }, targetFor(targets, date), today.isNotEmpty())
-        }
+        val progress = context.currentDateFlow().flatMapLatest { date ->
+            combine(repository.dao.observeTotal(date.toString()), repository.dao.observeTarget(date.toString())) { total, target ->
+                WidgetProgress(total, target ?: 16, total > 0)
+            }
+        }.distinctUntilChanged()
         // A live Glance session recomposes on update without rerunning provideGlance.
         // Wait for the first Room emission rather than showing an actionable stale snapshot.
         provideContent {
