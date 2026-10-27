@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.WaterSupply" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.WaterSupply" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:colorAccent">#17384D</item>
+        <item name="android:windowBackground">#B4E1EB</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
 </resources>

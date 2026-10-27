@@ -13,3 +13,5 @@
 .externalNativeBuild
 .cxx
 local.properties
+/build-check.log
+/device-check.log

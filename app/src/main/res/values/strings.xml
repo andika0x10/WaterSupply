@@ -1,3 +1,4 @@
 <resources>
+    <string name="widget_description">Pantau progres dan catat 1 atau setengah gelas air.</string>
     <string name="app_name">Water Supply</string>
 </resources>
