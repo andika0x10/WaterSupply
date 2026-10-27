@@ -13,6 +13,21 @@ Buka proyek di Android Studio, sinkronkan Gradle, lalu jalankan konfigurasi `app
 
 APK debug: `app/build/outputs/apk/debug/app-debug.apk`.
 
+## GitHub Actions dan release
+
+Workflow `Android CI` berjalan pada push ke `main`, pull request, dan pemicu manual. Workflow membangun APK debug, menjalankan unit test dan lint, lalu menyimpan APK serta laporan sebagai artifacts. Tes instrumentasi tetap dijalankan terpisah pada emulator/perangkat.
+
+Workflow `Android Release` berjalan saat tag `v*` di-push. Tag harus cocok dengan `versionName` di `app/build.gradle.kts` (contoh `v1.0`). Workflow memeriksa unit test dan lint release, membangun dan memverifikasi APK bertanda tangan, lalu menerbitkan GitHub Release dengan APK dan `SHA256SUMS.txt`.
+
+Repository secrets yang diperlukan: `ANDROID_KEYSTORE_BASE64` (keystore dalam Base64), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, dan `ANDROID_KEY_PASSWORD`. Simpan cadangan keystore beserta kredensialnya di tempat aman; gunakan kunci yang sama untuk pembaruan aplikasi. File dalam `.signing/` serta `*.jks` dan `*.keystore` diabaikan Git.
+
+Untuk release berikutnya, perbarui `versionName` dan naikkan `versionCode`, commit, lalu push tag yang sesuai:
+
+```sh
+git tag -a v1.0 -m "Water Supply v1.0"
+git push origin main v1.0
+```
+
 ## Perilaku
 
 - Tombol aplikasi dan widget mencatat 1 atau ½ gelas melalui repository yang sama. Riwayat mendukung tambah catatan lampau, ubah, dan hapus.

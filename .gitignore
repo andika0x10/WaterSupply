@@ -16,3 +16,6 @@
 local.properties
 /build-check.log
 /device-check.log
+/.signing/
+*.jks
+*.keystore
