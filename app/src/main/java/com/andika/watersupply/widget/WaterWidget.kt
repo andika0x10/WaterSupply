@@ -29,7 +29,8 @@ internal data class WidgetProgress(val total: Int, val target: Int, val canUndo:
 
 class WaterWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Responsive(setOf(
-        DpSize(140.dp, 150.dp), DpSize(180.dp, 150.dp), DpSize(250.dp, 180.dp)
+        DpSize(140.dp, 150.dp), DpSize(180.dp, 150.dp),
+        DpSize(250.dp, 150.dp), DpSize(250.dp, 180.dp)
     ))
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -57,7 +58,9 @@ class WaterWidget : GlanceAppWidget() {
     @Composable internal fun Content(value: WidgetProgress) {
         val narrow = LocalSize.current.width < 180.dp
         val compact = LocalSize.current.width < 250.dp
-        val largeText = LocalContext.current.resources.configuration.fontScale >= 1.5f
+        val short = LocalSize.current.height < 180.dp
+        val fontScale = LocalContext.current.resources.configuration.fontScale
+        val largeText = fontScale >= 1.3f
         val bitmap = remember(value.total, value.target) { waterGlassBitmap(value.total, value.target) }
         Column(GlanceModifier.fillMaxSize().background(ImageProvider(R.drawable.widget_background))
             .appWidgetBackground().padding(if (narrow) 6.dp else 12.dp)) {
@@ -65,14 +68,14 @@ class WaterWidget : GlanceAppWidget() {
                 Column(GlanceModifier.defaultWeight().fillMaxHeight().clickable(actionStartActivity<MainActivity>())
                     .semantics { contentDescription = "Progres minum ${glasses(value.total)} dari ${glasses(value.target)} gelas hari ini" },
                     verticalAlignment = Alignment.CenterVertically) {
-                    if (!largeText) {
+                    if (!largeText && (!short || fontScale <= 1f)) {
                         Text("Water Supply", style = textStyle(if (compact) 12 else 14, FontWeight.Medium), maxLines = 1)
                         Spacer(GlanceModifier.height(4.dp))
                     }
                     Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Image(ImageProvider(bitmap), contentDescription = null,
                             modifier = GlanceModifier.width(if (narrow) 24.dp else if (compact) 36.dp else 48.dp)
-                                .height(if (narrow) 44.dp else if (compact) 54.dp else 72.dp))
+                                .height(if (narrow || short && !compact) 44.dp else if (compact) 54.dp else 72.dp))
                         Spacer(GlanceModifier.width(if (narrow) 3.dp else 8.dp))
                         Column(GlanceModifier.defaultWeight()) {
                             if (compact && largeText) {
@@ -81,10 +84,11 @@ class WaterWidget : GlanceAppWidget() {
                                     style = textStyle(12))
                             } else {
                                 Text("${glasses(value.total)} / ${glasses(value.target)}", maxLines = 1,
-                                    style = textStyle(if (narrow) 14 else if (compact || largeText) 20 else 26, FontWeight.Bold))
-                                Text("gelas hari ini", maxLines = if (narrow) 2 else 1, style = textStyle(if (narrow) 10 else 12))
+                                    style = textStyle(if (narrow) 14 else if (short && largeText) 18 else if (compact || short || largeText) 20 else 26, FontWeight.Bold))
+                                Text("gelas hari ini", maxLines = if (narrow) 2 else 1,
+                                    style = textStyle(if (narrow || short && largeText) 10 else 12))
                             }
-                            if (!compact && !largeText) {
+                            if (!compact && !largeText && !short) {
                                 Spacer(GlanceModifier.height(4.dp))
                                 Text(if (value.total >= value.target) "Target tercapai" else
                                     "Sisa ${glasses(value.target - value.total)} gelas", style = textStyle(12), maxLines = 1)

@@ -1,6 +1,9 @@
 package com.andika.watersupply
 
 import android.content.res.Configuration
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
+import android.graphics.BitmapFactory
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.view.View
@@ -14,6 +17,7 @@ import androidx.glance.appwidget.GlanceRemoteViews
 import androidx.test.platform.app.InstrumentationRegistry
 import com.andika.watersupply.widget.WaterWidget
 import com.andika.watersupply.widget.WidgetProgress
+import com.andika.watersupply.widget.WaterWidgetReceiver
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
@@ -22,15 +26,30 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalGlanceRemoteViewsApi::class)
 class WidgetLayoutTest {
+    @Test fun pickerProvidesFourColumnWidgetAndThumbnail() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val provider = AppWidgetManager.getInstance(context).installedProviders.single {
+            it.provider == ComponentName(context, WaterWidgetReceiver::class.java)
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 31) {
+            assertEquals(4, provider.targetCellWidth)
+            assertEquals(2, provider.targetCellHeight)
+        }
+        assertTrue("Picker thumbnail must be set", provider.previewImage != 0)
+        val preview = BitmapFactory.decodeResource(context.resources, provider.previewImage)
+        assertNotNull("Picker thumbnail must be a valid bitmap", preview)
+        preview?.recycle()
+    }
+
     @Test fun responsiveLayoutsKeepActionsReachableAndRenderProgressStates() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val base = instrumentation.targetContext
-        for (fontScale in listOf(1f, 2f)) {
+        for (fontScale in listOf(1f, 1.3f, 2f)) {
             val context = base.createConfigurationContext(Configuration(base.resources.configuration).apply {
                 this.fontScale = fontScale
             })
             val density = context.resources.displayMetrics.density
-            for ((width, height) in listOf(140 to 150, 180 to 150, 250 to 180)) {
+            for ((width, height) in listOf(140 to 150, 180 to 150, 250 to 150, 300 to 150, 250 to 180)) {
                 for (total in listOf(0, 7, 16, 19)) {
                     val name = "widget-${width}x$height-total$total-font$fontScale"
                     val result = GlanceRemoteViews().compose(context, DpSize(width.dp, height.dp)) {

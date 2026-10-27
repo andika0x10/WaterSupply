@@ -43,6 +43,17 @@ Untuk menjalankan pemeriksaan dan tes perangkat (emulator/perangkat harus terhub
 ./gradlew.bat :app:connectedDebugAndroidTest
 ```
 
+Uji startup **APK release bertanda tangan** juga, karena tes debug tidak menjalankan
+optimasi R8. Gunakan emulator khusus pengujian: skrip ini menghapus instalasi dan
+data Water Supply pada emulator yang dipilih, lalu memeriksa fresh install serta
+cold relaunch. Jalankan setidaknya pada Android 16 (API 36).
+
+```powershell
+python scripts/check-release-startup.py --serial emulator-5556 --apk path/to/signed-release.apk
+```
+
+Tambahkan `--adb path/to/adb.exe` jika `adb` belum ada di PATH.
+
 Dibangun dengan **Kotlin · Jetpack Compose · Material 3 · Room · DataStore · Glance**.
 
 CI membangun dan memeriksa setiap push ke `main` serta pull request. Release APK bertanda tangan diterbitkan melalui tag `v*` yang cocok dengan `versionName`; konfigurasi ada di [workflow release](.github/workflows/release.yml).
