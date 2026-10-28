@@ -26,6 +26,44 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalGlanceRemoteViewsApi::class)
 class WidgetLayoutTest {
+    @Test fun failureLayoutKeepsRetryAndAppAccessVisible() = runBlocking {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val base = instrumentation.targetContext
+        for (fontScale in listOf(1f, 1.3f, 2f)) {
+            val context = base.createConfigurationContext(Configuration(base.resources.configuration).apply {
+                this.fontScale = fontScale
+            })
+            for (width in listOf(140, 180, 250, 276)) {
+                val result = GlanceRemoteViews().compose(context, DpSize(width.dp, 110.dp)) {
+                    WaterWidget().ErrorContent()
+                }
+                instrumentation.runOnMainSync {
+                    val parent = FrameLayout(context)
+                    parent.addView(result.remoteViews.apply(context, parent))
+                    val density = context.resources.displayMetrics.density
+                    val w = (width * density).roundToInt()
+                    val h = (110 * density).roundToInt()
+                    parent.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY))
+                    parent.layout(0, 0, w, h)
+                    val nodes = descendants(parent)
+                    val retry = nodes.single { it.contentDescription?.toString() == "Coba lagi" }
+                    assertTrue(retry.height >= (48 * density).toInt())
+                    assertTrue(retry.width >= (48 * density).toInt())
+                    assertTrue(nodes.any { it.contentDescription?.toString() == "Catatan belum bisa dimuat. Buka Water Supply" })
+                    nodes.filterIsInstance<TextView>().forEach { text ->
+                        assertTrue("$width/$fontScale: ${text.text} visible", text.height > 0)
+                        for (line in 0 until text.layout.lineCount) {
+                            assertEquals("$width/$fontScale: ${text.text} truncated", 0, text.layout.getEllipsisCount(line))
+                        }
+                        assertTrue("$width/$fontScale: ${text.text} fits vertically",
+                            text.layout.getLineBottom(text.layout.lineCount - 1) <= text.height - text.paddingTop - text.paddingBottom)
+                    }
+                }
+            }
+        }
+    }
+
     @Test fun pickerProvidesFourColumnWidgetAndThumbnail() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val provider = AppWidgetManager.getInstance(context).installedProviders.single {
@@ -35,6 +73,11 @@ class WidgetLayoutTest {
             assertEquals(4, provider.targetCellWidth)
             assertEquals(2, provider.targetCellHeight)
         }
+        val density = context.resources.displayMetrics.density
+        assertEquals((276 * density).roundToInt(), provider.minWidth)
+        assertEquals((110 * density).roundToInt(), provider.minHeight)
+        assertEquals((250 * density).roundToInt(), provider.minResizeWidth)
+        assertEquals((110 * density).roundToInt(), provider.minResizeHeight)
         assertTrue("Picker thumbnail must be set", provider.previewImage != 0)
         val preview = BitmapFactory.decodeResource(context.resources, provider.previewImage)
         assertNotNull("Picker thumbnail must be a valid bitmap", preview)
@@ -49,7 +92,8 @@ class WidgetLayoutTest {
                 this.fontScale = fontScale
             })
             val density = context.resources.displayMetrics.density
-            for ((width, height) in listOf(140 to 150, 180 to 150, 250 to 150, 300 to 150, 250 to 180)) {
+            for ((width, height) in listOf(140 to 110, 180 to 110, 250 to 110, 276 to 110,
+                300 to 110, 140 to 150, 180 to 150, 250 to 150, 300 to 150, 250 to 180)) {
                 for (total in listOf(0, 7, 16, 19)) {
                     val name = "widget-${width}x$height-total$total-font$fontScale"
                     val result = GlanceRemoteViews().compose(context, DpSize(width.dp, height.dp)) {

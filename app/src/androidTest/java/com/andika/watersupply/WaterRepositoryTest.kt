@@ -5,6 +5,10 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.andika.watersupply.data.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
+import com.andika.watersupply.widget.WidgetProgress
+import com.andika.watersupply.widget.observeWidgetProgress
 import org.junit.*
 import org.junit.Assert.*
 import java.time.*
@@ -16,6 +20,26 @@ class WaterRepositoryTest {
         repo = WaterRepository(context, Room.inMemoryDatabaseBuilder(context, WaterDatabase::class.java).build())
     }
     @After fun close() { repo.database.close() }
+    @Test fun widgetObservesTargetChangesAndSwitchesDay(): Unit = runBlocking {
+        val today = LocalDate.now()
+        val dates = MutableStateFlow(today)
+        val latest = MutableStateFlow<WidgetProgress?>(null)
+        val collector = launch { observeWidgetProgress(repo.dao, dates).collect { latest.value = it } }
+        suspend fun expect(value: WidgetProgress) = withTimeout(5_000) { latest.first { it == value } }
+        try {
+            expect(WidgetProgress(0, 16, false))
+            repo.record(1)
+            expect(WidgetProgress(1, 16, true))
+            repo.setTarget(20)
+            expect(WidgetProgress(1, 20, true))
+            dates.value = today.plusDays(1)
+            expect(WidgetProgress(0, 20, false))
+            repo.setTarget(12, today.plusDays(1))
+            expect(WidgetProgress(0, 12, false))
+            dates.value = today
+            expect(WidgetProgress(1, 20, true))
+        } finally { collector.cancelAndJoin() }
+    }
     @Test fun undoUsesTimestampThenIdAndNeverTouchesYesterday() = runBlocking {
         val now = System.currentTimeMillis()
         val yesterday = LocalDate.now().minusDays(1).atTime(12, 0)

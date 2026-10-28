@@ -26,6 +26,12 @@ Screenshot dari emulator Android dengan contoh catatan minum.
 - Atur pengingat berdasarkan interval atau jam khusus. Pengingat dijeda saat target tercapai.
 - Semua data tersimpan di perangkat. Menghapus data aplikasi atau uninstall akan menghapus catatan.
 
+Widget memakai ukuran awal **4 kolom × 2 baris** dan menyesuaikan isi dengan ruang
+yang diberikan launcher. Setelah memperbarui aplikasi, lepas dan pasang kembali
+widget jika launcher masih menyimpan ukuran lama. Melepas widget tidak menghapus
+catatan minum. Jika data gagal dimuat, gunakan **Coba lagi** atau ketuk pesan untuk
+membuka aplikasi.
+
 ## Menjalankan
 
 Memerlukan **Android 7.0+ (API 24)**. Buka proyek di Android Studio, gunakan JDK bawaan, sinkronkan Gradle, lalu jalankan konfigurasi `app`.
@@ -53,6 +59,25 @@ python scripts/check-release-startup.py --serial emulator-5556 --apk path/to/sig
 ```
 
 Tambahkan `--adb path/to/adb.exe` jika `adb` belum ada di PATH.
+
+Tes `WidgetHostTest` memeriksa dua instance widget, tombol, sesi idle, serta
+pemulihan dari kegagalan baca. Tes ini menunggu sekitar satu menit agar sesi Glance
+berakhir. Untuk memeriksa APK release melalui launcher, pasang widget pada layar
+utama emulator khusus pengujian, lalu jalankan:
+
+```powershell
+python scripts/check-release-widget.py --serial emulator-5556 --apk path/to/signed-release.apk
+```
+
+Pemeriksaan ini menambah dan mengurungkan catatan uji, memulai ulang proses aplikasi
+melalui tombol widget, serta memperbarui APK tanpa menghapus data. Aturan di
+`app/src/release/keepRules/widget.keep` mempertahankan konstruktor yang dipanggil
+melalui refleksi oleh WorkManager dan Glance; verifikasi release tetap diperlukan
+karena tes debug tidak menjalankan R8.
+
+Verifikasi tambahan di Redmi 13/Android 16 tetap diperlukan untuk ukuran
+grid pada launcher perangkat, pemasangan ulang widget, dan pembaruan APK tanpa
+menghapus data.
 
 Dibangun dengan **Kotlin · Jetpack Compose · Material 3 · Room · DataStore · Glance**.
 

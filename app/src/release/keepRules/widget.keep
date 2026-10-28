@@ -1,0 +1,10 @@
+# WorkManager 2.7.x looks up InputMerger constructors through reflection.
+# Its bundled class-only rule does not retain the constructor with current R8.
+-keep class * extends androidx.work.InputMerger {
+    public <init>();
+}
+
+# Glance instantiates these callbacks by class name when a widget button is tapped.
+-keep class * implements androidx.glance.appwidget.action.ActionCallback {
+    public <init>();
+}

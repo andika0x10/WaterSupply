@@ -19,7 +19,13 @@ class WaterApplication : Application() {
     private val refreshMutex = Mutex()
     override fun onCreate() { super.onCreate(); scope.launch { refresh() } }
     suspend fun refresh() = refreshMutex.withLock {
-        reminders.reschedule()
+        try {
+            reminders.reschedule()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            android.util.Log.e("WaterSupply", "Reminder scheduling failed", error)
+        }
         WaterWidget().updateAll(this)
     }
 }

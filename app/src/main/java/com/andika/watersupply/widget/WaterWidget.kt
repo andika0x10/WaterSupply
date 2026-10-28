@@ -10,6 +10,9 @@ import androidx.glance.*
 import androidx.glance.action.*
 import androidx.glance.appwidget.*
 import androidx.glance.appwidget.action.*
+import androidx.glance.appwidget.state.updateAppWidgetState
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.glance.layout.*
 import androidx.glance.text.*
 import androidx.glance.unit.ColorProvider
@@ -18,40 +21,67 @@ import androidx.glance.semantics.semantics
 import com.andika.watersupply.MainActivity
 import com.andika.watersupply.R
 import com.andika.watersupply.data.glasses
-import com.andika.watersupply.data.currentDateFlow
 import com.andika.watersupply.waterApp
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.CancellationException
 
 private val Ink = Color(0xFF17384D)
-internal data class WidgetProgress(val total: Int, val target: Int, val canUndo: Boolean)
+internal val WidgetRetryKey = intPreferencesKey("widget_retry")
 
-class WaterWidget : GlanceAppWidget() {
+class WaterWidget internal constructor(private val dataSource: WidgetDataSource) : GlanceAppWidget() {
+    constructor() : this(RoomWidgetDataSource)
+
     override val sizeMode = SizeMode.Responsive(setOf(
-        DpSize(140.dp, 150.dp), DpSize(180.dp, 150.dp),
-        DpSize(250.dp, 150.dp), DpSize(250.dp, 180.dp)
+        DpSize(140.dp, 110.dp), DpSize(180.dp, 110.dp),
+        DpSize(250.dp, 110.dp), DpSize(250.dp, 150.dp), DpSize(250.dp, 180.dp)
     ))
 
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val repository = context.waterApp.repository
-        val progress = context.currentDateFlow().flatMapLatest { date ->
-            combine(repository.dao.observeTotal(date.toString()), repository.dao.observeTarget(date.toString())) { total, target ->
-                WidgetProgress(total, target ?: 16, total > 0)
-            }
-        }.distinctUntilChanged()
-        // A live Glance session recomposes on update without rerunning provideGlance.
-        // Wait for the first Room emission rather than showing an actionable stale snapshot.
+        suspend fun snapshot() = loadWidgetState(onError = { logWidgetError(it) }) {
+            dataSource.read(context)
+        }
+        // The first RemoteViews already contains real data (or a recoverable error).
+        val initial = snapshot()
+        val progress = flow { emitAll(dataSource.observe(context)) }
+            .map<WidgetProgress, WidgetState> { WidgetState.Ready(it) }
         provideContent {
-            val value by progress.collectAsState(initial = null)
-            val current = value
-            if (current == null) {
-                Box(GlanceModifier.fillMaxSize().background(ImageProvider(R.drawable.widget_background)).padding(12.dp),
-                    contentAlignment = Alignment.Center) {
-                    Text("Memuat catatan…", style = textStyle(14))
+            // update() reuses live sessions. A persisted retry key also restarts a failed collector.
+            val retry = currentState<Preferences>()[WidgetRetryKey] ?: 0
+            val states = remember(retry) {
+                flow {
+                    if (retry != 0) emit(snapshot())
+                    emitAll(progress)
+                }.catch { error ->
+                    if (error is CancellationException) throw error
+                    logWidgetError(error)
+                    emit(WidgetState.Failed)
                 }
-            } else Content(current)
+            }
+            val state by states.collectAsState(initial = initial)
+            when (val current = state) {
+                is WidgetState.Ready -> Content(current.progress)
+                WidgetState.Failed -> ErrorContent()
+            }
+        }
+    }
+
+    @Composable internal fun ErrorContent() {
+        val largeText = LocalContext.current.resources.configuration.fontScale >= 1.3f
+        Column(GlanceModifier.fillMaxSize().background(ImageProvider(R.drawable.widget_background))
+            .appWidgetBackground().padding(4.dp)) {
+            Box(GlanceModifier.fillMaxWidth().defaultWeight().clickable(actionStartActivity<MainActivity>())
+                .semantics { contentDescription = "Catatan belum bisa dimuat. Buka Water Supply" },
+                contentAlignment = Alignment.CenterStart) {
+                Text("Catatan belum bisa dimuat", style = textStyle(if (largeText) 10 else 12), maxLines = 2)
+            }
+            Box(GlanceModifier.fillMaxWidth().height(48.dp)
+                .background(ImageProvider(R.drawable.widget_action_primary)).clickable(actionRunCallback<RetryWidget>())
+                .semantics { contentDescription = "Coba lagi" }, contentAlignment = Alignment.Center) {
+                Text("Coba lagi", style = textStyle(if (largeText) 12 else 14, FontWeight.Bold), maxLines = 1)
+            }
         }
     }
 
@@ -59,26 +89,31 @@ class WaterWidget : GlanceAppWidget() {
         val narrow = LocalSize.current.width < 180.dp
         val compact = LocalSize.current.width < 250.dp
         val short = LocalSize.current.height < 180.dp
+        val lowHeight = LocalSize.current.height < 150.dp
         val fontScale = LocalContext.current.resources.configuration.fontScale
         val largeText = fontScale >= 1.3f
         val bitmap = remember(value.total, value.target) { waterGlassBitmap(value.total, value.target) }
         Column(GlanceModifier.fillMaxSize().background(ImageProvider(R.drawable.widget_background))
-            .appWidgetBackground().padding(if (narrow) 6.dp else 12.dp)) {
+            .appWidgetBackground().padding(if (lowHeight) 4.dp else if (narrow) 6.dp else 12.dp)) {
             Row(GlanceModifier.fillMaxWidth().defaultWeight(), verticalAlignment = Alignment.CenterVertically) {
                 Column(GlanceModifier.defaultWeight().fillMaxHeight().clickable(actionStartActivity<MainActivity>())
                     .semantics { contentDescription = "Progres minum ${glasses(value.total)} dari ${glasses(value.target)} gelas hari ini" },
                     verticalAlignment = Alignment.CenterVertically) {
-                    if (!largeText && (!short || fontScale <= 1f)) {
+                    if (!lowHeight && !largeText && (!short || fontScale <= 1f)) {
                         Text("Water Supply", style = textStyle(if (compact) 12 else 14, FontWeight.Medium), maxLines = 1)
                         Spacer(GlanceModifier.height(4.dp))
                     }
                     Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Image(ImageProvider(bitmap), contentDescription = null,
+                        if (!lowHeight || !narrow) Image(ImageProvider(bitmap), contentDescription = null,
                             modifier = GlanceModifier.width(if (narrow) 24.dp else if (compact) 36.dp else 48.dp)
-                                .height(if (narrow || short && !compact) 44.dp else if (compact) 54.dp else 72.dp))
-                        Spacer(GlanceModifier.width(if (narrow) 3.dp else 8.dp))
+                                .height(if (lowHeight) 32.dp else if (narrow || short && !compact) 44.dp else if (compact) 54.dp else 72.dp))
+                        if (!lowHeight || !narrow) Spacer(GlanceModifier.width(if (narrow) 3.dp else 8.dp))
                         Column(GlanceModifier.defaultWeight()) {
-                            if (compact && largeText) {
+                            if (lowHeight) {
+                                Text("${glasses(value.total)} / ${glasses(value.target)}", maxLines = 1,
+                                    style = textStyle(if (narrow) 11 else if (largeText) 16 else 20, FontWeight.Bold))
+                                if (!narrow && !largeText) Text("gelas hari ini", maxLines = 1, style = textStyle(10))
+                            } else if (compact && largeText) {
                                 Text(glasses(value.total), maxLines = 1, style = textStyle(if (narrow) 14 else 16, FontWeight.Bold))
                                 Text("/ ${glasses(value.target)}${if (narrow) "" else " gelas"}", maxLines = 1,
                                     style = textStyle(12))
@@ -101,7 +136,7 @@ class WaterWidget : GlanceAppWidget() {
                     UndoButton(value.canUndo)
                 }
             }
-            Spacer(GlanceModifier.height(if (narrow) 4.dp else 8.dp))
+            Spacer(GlanceModifier.height(if (narrow || lowHeight) 4.dp else 8.dp))
             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 AddButton(if (compact || largeText) "+1" else "+1 gelas", "Tambah 1 gelas", actionRunCallback<AddGlass>(),
                     R.drawable.widget_action_primary, GlanceModifier.defaultWeight())
@@ -135,6 +170,8 @@ class WaterWidget : GlanceAppWidget() {
     }
 }
 
+private fun logWidgetError(error: Throwable) = android.util.Log.e("WaterSupply", "Widget data unavailable", error)
+
 private fun textStyle(size: Int, weight: FontWeight = FontWeight.Normal) =
     TextStyle(color = ColorProvider(Ink), fontSize = size.sp, fontWeight = weight, fontFamily = FontFamily.SansSerif)
 
@@ -154,6 +191,14 @@ class UndoLastDrink : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         context.waterApp.repository.undoLatestToday()
         context.waterApp.refresh()
+    }
+}
+class RetryWidget : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        updateAppWidgetState(context, glanceId) { state ->
+            state[WidgetRetryKey] = (state[WidgetRetryKey] ?: 0) + 1
+        }
+        WaterWidget().update(context, glanceId)
     }
 }
 class WaterWidgetReceiver : GlanceAppWidgetReceiver() { override val glanceAppWidget = WaterWidget() }
